@@ -15,6 +15,8 @@ func main() {
 	flag.StringVar(&bucketName, "bucket", "", "S3 Name")
 	var region string
 	flag.StringVar(&region, "region", "", "S3 region")
+	var headerMapping string
+	flag.StringVar(&headerMapping, "header-mapping", "", "")
 	var defaultPrefix string
 	flag.StringVar(&defaultPrefix, "prefix", "", "Optional prefix for all objects. For example, use --prefix=foo/ to work under foo directory in a bucket.")
 	flag.Parse()
@@ -27,7 +29,7 @@ func main() {
 		Region: aws.String(region),
 	}))
 
-	storageProxy := proxy.NewStorageProxy(sess, bucketName, defaultPrefix)
+	storageProxy := proxy.NewStorageProxy(sess, bucketName, defaultPrefix, headerMapping)
 
 	err := storageProxy.Serve(port)
 	if err != nil {

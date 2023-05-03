@@ -10,6 +10,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"strings"
 )
 
 type StorageProxy struct {
@@ -17,14 +18,23 @@ type StorageProxy struct {
 	s3Client      *s3.S3
 	bucketName    string
 	defaultPrefix string
+	headerMap     map[string]string
 }
 
-func NewStorageProxy(sess *session.Session, bucketName string, defaultPrefix string) *StorageProxy {
+func NewStorageProxy(sess *session.Session, bucketName, defaultPrefix, headerMapping string) *StorageProxy {
+	headerMap := map[string]string{}
+	for _, headerMapping := range strings.Split(headerMapping, ",") {
+		headerMapping := strings.Split(headerMapping, "=")
+		if len(headerMapping) == 2 {
+			headerMap[headerMapping[0]] = headerMapping[1]
+		}
+	}
 	return &StorageProxy{
 		sess:          sess,
 		s3Client:      s3.New(sess),
 		bucketName:    bucketName,
 		defaultPrefix: defaultPrefix,
+		headerMap:     headerMap,
 	}
 }
 
@@ -35,7 +45,7 @@ func (proxy StorageProxy) objectName(name string) string {
 func (proxy StorageProxy) Serve(port int64) error {
 	http.HandleFunc("/", proxy.handler)
 
-	listener, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", port))
+	listener, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
 
 	if err == nil {
 		address := listener.Addr().String()
@@ -92,11 +102,18 @@ func (proxy StorageProxy) checkBlobExists(w http.ResponseWriter, name string) {
 
 func (proxy StorageProxy) uploadBlob(w http.ResponseWriter, r *http.Request, name string) {
 	uploader := s3manager.NewUploader(proxy.sess)
-
+	metadata := map[string]*string{}
+	for k, v := range r.Header {
+		if newHeader, exist := proxy.headerMap[strings.ToLower(k)]; exist {
+			metadata[newHeader] = &v[0]
+		}
+	}
 	_, err := uploader.Upload(&s3manager.UploadInput{
-		Bucket: aws.String(proxy.bucketName),
-		Key:    aws.String(proxy.objectName(name)),
-		Body:   bufio.NewReader(r.Body),
+		Body:        bufio.NewReader(r.Body),
+		Bucket:      aws.String(proxy.bucketName),
+		ContentType: aws.String(r.Header.Get("Content-Type")),
+		Key:         aws.String(proxy.objectName(name)),
+		Metadata:    metadata,
 	})
 
 	if err != nil {
